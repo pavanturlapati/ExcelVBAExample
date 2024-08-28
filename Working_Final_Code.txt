@@ -1,0 +1,353 @@
+' Author: Pavan T
+' Date  : Aug10
+
+Sub extract_ExecutionDataFromJira()
+    ' Declare and initialize variables
+    Dim projectName As String
+    Dim resources_sheet_name As String
+    Dim te_sheet_name As String
+    Dim num_of_Days As Integer
+    Dim tests_executed_first_column As Integer
+    Dim consolidated_Resources As Dictionary
+    
+    ' Initialize Variables with specific values
+    projectName = "SOMS"                           ' Project name
+    te_sheet_name = "TE_Jira"                      ' Worksheet name for Test Execution data
+    num_of_Days = 6                                ' Number of days for execution report
+    tests_executed_first_column = 8                ' First column index for "Tests Executed" data
+    resources_sheet_name = "Resources_Master"      ' Worksheet name for resources data
+    
+    ' Create and set up the sheet with headers based on the project name and days of execution report
+    Application.Run "CreateSheetAndFillHeaders", projectName, num_of_Days
+    
+    ' Read and consolidate resources details from the resources sheet
+    Set consolidated_Resources = readResourcesDetails(resources_sheet_name)
+    
+    ' Update the resources, executions, and bugs details on the test execution sheet
+    Application.Run "update_resources_executions_bugs_details", projectName, te_sheet_name, consolidated_Resources
+    
+    ' Display a message indicating that the data extraction process is completed
+    MsgBox "DATA EXTRACTION for " & Chr(39) & projectName & Chr(39) & " team is NOW COMPLETED!", vbInformation
+End Sub
+
+
+Sub CreateSheetAndFillHeaders(wsName As String, num_of_Days As Integer)
+    ' Declare variables
+    Dim ws As Worksheet
+    Dim headers As Variant
+    Dim i As Integer
+    Dim todayDate As Date
+    Dim countDays As Integer
+    Dim currentColumn As Integer
+    
+    ' Attempt to delete the sheet if it already exists
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    Set ws = ThisWorkbook.Sheets(wsName)
+    If Not ws Is Nothing Then ws.Delete
+    Application.DisplayAlerts = True
+    On Error GoTo 0
+    
+    ' Create a new worksheet and name it
+    Set ws = ThisWorkbook.Sheets.Add
+    ws.Name = wsName
+    
+    ' Define the column headers for the sheet
+    headers = Array("#", "Project/" & Chr(10) & "Brand", "Assignee", "Assignee (Jira)", "Exists", "Total" & Chr(10) & "Tests" & Chr(10) & "Executed", "Total" & Chr(10) & "Defects" & Chr(10) & "Logged")
+    
+    ' Loop through the headers array to set column names in row 2
+    For i = LBound(headers) To UBound(headers)
+        ws.Cells(2, i + 1).Value = headers(i)
+        With ws.Range(ws.Cells(1, i + 1), ws.Cells(2, i + 1))
+            .Merge
+            .Borders.LineStyle = xlContinuous
+            .Font.Size = 9
+            .Font.Bold = True
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .Columns.AutoFit
+            
+            ' Apply conditional formatting based on header position
+            If i > 4 And i < 7 Then
+                .Interior.Color = RGB(173, 216, 230) ' Light blue for specific columns
+            Else
+                .Interior.Color = RGB(144, 238, 144) ' Light green for other columns
+            End If
+        End With
+    Next i
+    
+    ' Initialize variables for date handling
+    todayDate = Date
+    countDays = 0
+    currentColumn = UBound(headers) + 2
+    
+    ' Loop until the required number of non-weekend days are added as columns
+    Do While countDays < num_of_Days
+        ' Check if the current date is a weekday
+        If Weekday(todayDate) <> vbSaturday And Weekday(todayDate) <> vbSunday Then
+            
+            ' Format and set the current date in the appropriate cell
+            With ws.Cells(1, currentColumn)
+                .Value = Format(todayDate, "mm/dd/yyyy")
+                .Font.Size = 9
+                .Font.Bold = True
+                .Borders.LineStyle = xlContinuous
+                .Interior.Color = RGB(144, 238, 144)
+                .HorizontalAlignment = xlCenter
+                .VerticalAlignment = xlCenter
+            End With
+            
+            ' Merge the date cell with the next cell
+            ws.Range(ws.Cells(1, currentColumn), ws.Cells(1, currentColumn + 1)).Merge
+            
+            ' Set and format the "Tests Executed" header
+            With ws.Cells(2, currentColumn)
+                .Value = "Tests" & Chr(10) & "Executed"
+                .Font.Size = 9
+                .Font.Bold = True
+                .Interior.Color = RGB(144, 238, 144)
+                .HorizontalAlignment = xlCenter
+                .VerticalAlignment = xlCenter
+                .Borders.LineStyle = xlContinuous
+            End With
+            
+            ' Set and format the "Defects Logged" header
+            With ws.Cells(2, currentColumn + 1)
+                .Value = "Defects" & Chr(10) & "Logged"
+                .Font.Size = 9
+                .Font.Bold = True
+                .Interior.Color = RGB(144, 238, 144)
+                .HorizontalAlignment = xlCenter
+                .VerticalAlignment = xlCenter
+                .Borders.LineStyle = xlContinuous
+            End With
+            
+            ' Increment counters for days and columns
+            countDays = countDays + 1
+            currentColumn = currentColumn + 2
+        End If
+        
+        ' Move to the previous date to continue the loop
+        todayDate = todayDate - 1
+    Loop
+End Sub
+
+
+
+Sub update_resources_executions_bugs_details(wsName As String, te_wsName As String, consolidated_Resources As Dictionary)
+'Fill in the resourcenames in the sheet
+    Dim k As Variant
+    Dim currentRow As Integer
+    Set project_ws = ThisWorkbook.Sheets(wsName)
+    ' Find the last row with data in Column C
+        lastRow = project_ws.Cells(project_ws.Rows.Count, 3).End(xlUp).Row
+    ' If the sheet is empty (only headers), start writing at row 2
+        If lastRow = 1 And project_ws.Cells(1, 1).Value = "" Then
+            lastRow = 0
+        End If
+    currentRow = lastRow + 2
+    For Each k In consolidated_Resources.Keys
+        converted_resourceName = LCase(consolidated_Resources(k))
+        resourceName = consolidated_Resources(k)
+        If (InStr(1, converted_resourceName, LCase(wsName)) > 0) Then
+            'MsgBox resourceName
+            project_ws.Cells(currentRow, 1).Value = currentRow - 2
+            project_ws.Cells(currentRow, 2).Value = Split(resourceName, "%%")(1)
+            project_ws.Cells(currentRow, 3).Value = Split(resourceName, "%%")(0)
+            project_ws.Cells(currentRow, 4).Value = k
+            
+            project_ws.Cells(currentRow, 5).Formula = "=IF(COUNTIF(" & te_wsName & "!$1:$1,D" & currentRow & ")>0,MATCH(D" & currentRow & "," & te_wsName & "!$1:$1,0)," & "-1" & ")"
+            project_ws.Cells(currentRow, 5).Value = GetColumnLetter(project_ws.Cells(currentRow, 5).Value)
+            
+            'Total Tests Executed
+            Call updateTotalTestsExecutedFormula(wsName, 8, currentRow, 6, "TE")
+            
+            'Total Defects Logged
+            Call updateTotalTestsExecutedFormula(wsName, 9, currentRow, 7, "DE")
+            
+            ' Find the last column with data in the first row (header row)
+            lastCol = project_ws.Cells(2, project_ws.Columns.Count).End(xlToLeft).Column
+            'MsgBox lastCol
+
+            ' Summing values across multiple columns
+            Dim colOffset As Integer
+            Dim te_counter As Integer
+            Dim defects_counter As Integer
+            te_counter = 8
+            defects_counter = 9
+            
+            For colOffset = 8 To lastCol Step 2
+                'MsgBox colOffset
+                If (Len(project_ws.Cells(currentRow, 5).Value) > 0) Then
+                    project_ws.Cells(currentRow, te_counter).Formula = "=IFERROR(SUMIFS(" & te_wsName & "!$" & project_ws.Cells(currentRow, 5).Value & ":$" & project_ws.Cells(currentRow, 5).Value & "," & te_wsName & "!$B:$B," & Chr(34) & project_ws.Cells(1, te_counter).Value & Chr(34) & "),0)"
+                    project_ws.Cells(currentRow, defects_counter).Formula = ("=COUNTIFS(" & wsName & "_Jira!$M:$M," & wsName & "!C" & currentRow & "," & wsName & "_Jira!$A:$A," & Chr(34) & "Bug" & Chr(34) & "," & wsName & "_Jira!$N:$N," & Chr(34) & "=" & project_ws.Cells(1, te_counter).Value & Chr(34) & ")")
+                    
+                Else
+                    project_ws.Cells(currentRow, te_counter).Value = 0
+                    project_ws.Cells(currentRow, defects_counter).Value = 0
+                End If
+                te_counter = te_counter + 2
+                defects_counter = defects_counter + 2
+            Next colOffset
+            
+            
+            currentRow = currentRow + 1
+        End If
+    Next k
+    
+    project_ws.Cells.Font.Size = 9
+    
+    ' To add the Sum
+    ' Update the last row after writing dictionary values
+    lastRow = project_ws.Cells(project_ws.Rows.Count, 3).End(xlUp).Row
+    
+    project_ws.Range("A" & lastRow + 1 & ":C" & lastRow + 1).Merge
+    project_ws.Range("A" & lastRow + 1 & ":C" & lastRow + 1).Borders.LineStyle = xlContinuous
+    project_ws.Range("A" & lastRow + 1 & ":C" & lastRow + 1).Font.Size = 14
+    project_ws.Range("A" & lastRow + 1 & ":C" & lastRow + 1).Font.Bold = True
+    project_ws.Range("A" & lastRow + 1 & ":C" & lastRow + 1).Interior.Color = RGB(234, 185, 136)
+    project_ws.Range("A" & lastRow + 1 & ":C" & lastRow + 1).Value = "GRAND TOTAL"
+        
+    ' Find the last column with data in the first row (header row)
+    lastCol = project_ws.Cells(1, project_ws.Columns.Count).End(xlToLeft).Column
+    
+    ' Loop through each column with data
+    For col = 6 To lastCol + 1
+        ' Define the range to calculate the sum in each column from row 3 to the last data row
+        Set sumRange = project_ws.Range(project_ws.Cells(3, col), project_ws.Cells(lastRow, col))
+        
+        ' Calculate the sum and write it in the cell below the last data row in the same column
+        Set sumCell = project_ws.Cells(lastRow + 1, col)
+        sumCell.Value = Application.WorksheetFunction.Sum(sumRange)
+        
+        ' Apply formatting (bold and font size 14)
+        With sumCell
+            .Font.Bold = True
+            .Font.Size = 14
+            .Interior.Color = RGB(234, 185, 136)
+        End With
+    Next col
+
+    project_ws.Cells.Borders.LineStyle = xlContinuous
+    project_ws.Cells.HorizontalAlignment = xlCenter
+    project_ws.Cells.VerticalAlignment = xlCenter
+    project_ws.Columns.AutoFit
+    project_ws.Range("C:C").HorizontalAlignment = xlLeft
+    project_ws.Range("C1:C2").HorizontalAlignment = xlCenter
+    project_ws.Range("D:E").EntireColumn.Hidden = True
+    project_ws.Range("A1").Select
+    With ActiveWindow
+        .SplitColumn = 1
+        .SplitRow = 2
+        .FreezePanes = True
+    End With
+End Sub
+
+Sub updateTotalTestsExecutedFormula(wsName As String, start_Column As Integer, row_number As Integer, column_number As Integer, paramType As String)
+    ' Declare variables
+    Dim ws As Worksheet
+    Dim lastColumn As Long
+    Dim totalTestsCell As Range
+    Dim sumFormula As String
+    Dim currentColumn As Long
+    
+    ' Set the worksheet based on the provided sheet name
+    Set ws = ThisWorkbook.Sheets(wsName)
+    
+    ' Find the last column with data in row 1
+    lastColumn = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    
+    ' Reference the cell where the total formula will be placed
+    Set totalTestsCell = ws.Cells(row_number, column_number)
+    
+    ' Initialize the sum formula string
+    sumFormula = "="
+    
+    ' Depending on the paramType, loop through the columns to build the sum formula
+    If paramType = "TE" Then
+        ' Loop through every other column starting from start_Column and sum "Tests Executed"
+        For currentColumn = start_Column To lastColumn Step 2
+            sumFormula = sumFormula & ws.Cells(row_number, currentColumn).Address & "+"
+        Next currentColumn
+    Else
+        ' Loop through every other column, starting from start_Column + 1, for a different sum
+        For currentColumn = start_Column To lastColumn + 1 Step 2
+            sumFormula = sumFormula & ws.Cells(row_number, currentColumn).Address & "+"
+        Next currentColumn
+    End If
+    
+    ' Remove the last "+" from the sum formula to avoid a syntax error
+    sumFormula = Left(sumFormula, Len(sumFormula) - 1)
+    
+    ' Set the constructed sum formula in the specified cell
+    totalTestsCell.Formula = sumFormula
+End Sub
+
+
+Function readResourcesDetails(resources_sheet_name As String) As Dictionary
+    ' Initialize variables and objects
+    Dim resources_ws As Worksheet
+    Dim lastRow As Long
+    Dim i As Long
+    Dim Key As String
+    Dim Value As String
+    Dim consolidated_Resources As Dictionary
+    
+    ' Set the worksheet object using the provided sheet name
+    Set resources_ws = ThisWorkbook.Sheets(resources_sheet_name)
+    
+    ' Find the last row with data in Column B (assumes data starts from the top)
+    lastRow = resources_ws.Cells(resources_ws.Rows.Count, "B").End(xlUp).Row
+    
+    ' Create a new dictionary to hold the consolidated resources
+    Set consolidated_Resources = CreateObject("Scripting.Dictionary")
+    
+    ' Loop through each row starting from row 2 (since row 1 is assumed to be headers)
+    For i = 2 To lastRow
+        ' Extract the key from Column C
+        Key = resources_ws.Cells(i, "C").Value
+        
+        ' Construct the value by concatenating Column B and Column A with a separator "%%"
+        Value = resources_ws.Cells(i, "B").Value & "%%" & resources_ws.Cells(i, "A").Value
+        
+        ' Check if the key already exists in the dictionary
+        If Not consolidated_Resources.Exists(Key) Then
+            ' Add the key-value pair to the dictionary if the key does not exist
+            consolidated_Resources.Add Key, Value
+        Else
+            ' Notify the user if a duplicate key is found
+            MsgBox "Duplicate key found: " & Key, vbExclamation
+        End If
+    Next i
+    
+    ' Return the populated dictionary
+    Set readResourcesDetails = consolidated_Resources
+End Function
+
+
+Function GetColumnLetter(columnNumber As Long) As String
+    ' Initialize an empty string to hold the column letter
+    Dim columnLetter As String
+    columnLetter = ""
+    
+    ' Loop until the column number is reduced to zero
+    Do While columnNumber > 0
+        ' Calculate the remainder after adjusting the column number by 1 (to fit 0-based index for letters)
+        Dim remainder As Long
+        remainder = (columnNumber - 1) Mod 26
+        
+        ' Convert the remainder to the corresponding letter and prepend it to the result
+        columnLetter = Chr(65 + remainder) & columnLetter
+        
+        ' Reduce the column number for the next iteration
+        columnNumber = (columnNumber - remainder) \ 26
+    Loop
+    
+    ' Return the calculated column letter
+    GetColumnLetter = columnLetter
+End Function
+
+
+
+
+
